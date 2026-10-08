@@ -1,0 +1,7 @@
+Employees receive 25 days of annual leave per year.
+
+Employees must request leave at least 7 days before the planned leave date.
+
+Managers are responsible for approving or rejecting leave requests.
+
+Emergency leave can be requested without the 7-day notice requirement.

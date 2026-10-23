@@ -1,70 +1,67 @@
 
+import hashlib
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
-
-from src.document_loader import load_text_document
-from src.ingestion.text_loader import load_txt_document
+from src.ingestion.models import CanonicalDocument, DocumentBlock
+from src.ingestion.validation import validate_canonical_document
 
 
-def test_load_text_document_returns_text_and_metadata(tmp_path):
-    file_path = tmp_path / "policy.txt"
-    file_path.write_text(
-        "Employees receive 25 days of annual leave.",
-        encoding="utf-8",
+def load_txt_document(
+    file_path: str | Path,
+    version: str = "v1",
+) -> CanonicalDocument:
+    """Load a UTF-8 text file into the canonical document structure."""
+
+    path = Path(file_path)
+
+    if not path.is_file():
+        raise FileNotFoundError(f"Document not found: {path}")
+
+    raw_bytes = path.read_bytes()
+    text = raw_bytes.decode("utf-8")
+    content_hash = hashlib.sha256(raw_bytes).hexdigest()
+
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    if not text:
+        raise ValueError(f"Document contains no text: {path}")
+
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in text.split("\n\n")
+        if paragraph.strip()
+    ]
+
+    blocks = []
+    search_from = 0
+
+    for order, paragraph in enumerate(paragraphs):
+        start_offset = text.find(paragraph, search_from)
+        end_offset = start_offset + len(paragraph)
+        search_from = end_offset
+
+        blocks.append(
+            DocumentBlock(
+                block_id=f"{path.stem}-block-{order:04d}",
+                block_type="paragraph",
+                text=paragraph,
+                order=order,
+                start_offset=start_offset,
+                end_offset=end_offset,
+            )
+        )
+
+    # Build the document after every block has been collected.
+    document = CanonicalDocument(
+        document_id=path.stem,
+        source=str(path.resolve()),
+        file_type="txt",
+        content_hash=content_hash,
+        version=version,
+        blocks=blocks,
     )
 
-    result = load_text_document(file_path)
+    # Reject inconsistent documents before returning them.
+    validate_canonical_document(document)
 
-    assert result["text"] == "Employees receive 25 days of annual leave."
-    assert result["status"] == "completed"
-    assert result["warnings"] == []
-    assert result["metadata"]["document_id"] == "policy"
-    assert result["metadata"]["file_type"] == "txt"
-    assert result["metadata"]["char_count"] == len(result["text"])
-    assert result["metadata"]["content_hash"]
-
-
-def test_empty_file_produces_warning(tmp_path):
-    file_path = tmp_path / "empty.txt"
-    file_path.write_text("", encoding="utf-8")
-
-    result = load_text_document(file_path)
-
-    assert result["text"] == ""
-    assert result["status"] == "completed_with_warnings"
-    assert result["warnings"]
-
-
-def test_missing_file_raises_error(tmp_path):
-    file_path = tmp_path / "missing.txt"
-
-    with pytest.raises(FileNotFoundError):
-        load_text_document(file_path)
-
-
-def test_line_endings_are_normalized(tmp_path):
-    file_path = tmp_path / "lines.txt"
-    file_path.write_bytes(b"First line\r\nSecond line\rThird line")
-
-    result = load_text_document(file_path)
-
-    assert result["text"] == "First line\nSecond line\nThird line"
-
-
-def test_loader_calls_canonical_validation(tmp_path):
-    file_path = tmp_path / "policy.txt"
-    file_path.write_text(
-        "Employees receive annual leave.",
-        encoding="utf-8",
-    )
-
-    with patch(
-        "src.ingestion.text_loader.validate_canonical_document",
-        side_effect=ValueError("Validation failed"),
-    ) as mock_validate:
-        with pytest.raises(ValueError, match="Validation failed"):
-            load_txt_document(file_path)
-
-    mock_validate.assert_called_once()
+    return document

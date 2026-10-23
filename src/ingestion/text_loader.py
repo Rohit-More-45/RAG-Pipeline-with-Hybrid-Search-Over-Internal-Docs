@@ -3,6 +3,7 @@ import hashlib
 from pathlib import Path
 
 from src.ingestion.models import CanonicalDocument, DocumentBlock
+from src.ingestion.validation import validate_canonical_document
 
 
 def load_txt_document(
@@ -50,7 +51,7 @@ def load_txt_document(
             )
         )
 
-    return CanonicalDocument(
+        document = CanonicalDocument(
         document_id=path.stem,
         source=str(path.resolve()),
         file_type="txt",
@@ -58,3 +59,8 @@ def load_txt_document(
         version=version,
         blocks=blocks,
     )
+
+    validate_canonical_document(document)
+
+    return document
+

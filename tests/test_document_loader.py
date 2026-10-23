@@ -1,9 +1,11 @@
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from src.document_loader import load_text_document
+from src.ingestion.text_loader import load_txt_document
 
 
 def test_load_text_document_returns_text_and_metadata(tmp_path):
@@ -49,3 +51,20 @@ def test_line_endings_are_normalized(tmp_path):
     result = load_text_document(file_path)
 
     assert result["text"] == "First line\nSecond line\nThird line"
+
+
+def test_loader_calls_canonical_validation(tmp_path):
+    file_path = tmp_path / "policy.txt"
+    file_path.write_text(
+        "Employees receive annual leave.",
+        encoding="utf-8",
+    )
+
+    with patch(
+        "src.ingestion.text_loader.validate_canonical_document",
+        side_effect=ValueError("Validation failed"),
+    ) as mock_validate:
+        with pytest.raises(ValueError, match="Validation failed"):
+            load_txt_document(file_path)
+
+    mock_validate.assert_called_once()
